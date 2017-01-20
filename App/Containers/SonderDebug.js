@@ -13,7 +13,7 @@ import {
 
 import Styles from './Styles/MapViewStyle'
 import Compass from '../Lib/Compass'
-import { getPrettyBearing, toTuples } from '../Lib/MapHelpers'
+import { hoodToAnnotations, reverseTuples, getPrettyBearing, toTuples } from '../Lib/MapHelpers'
 
 const accessToken = 'pk.eyJ1Ijoic2FsbW9uYXgiLCJhIjoiY2l4czY4dWVrMGFpeTJxbm5vZnNybnRrNyJ9.MUj42m1fjS1vXHFhA_OK_w';
 Mapbox.setAccessToken(accessToken);
@@ -68,14 +68,37 @@ class SonderView extends Component {
           hoods: hoodLatLngs,
           streets: streetLatLngs
         });
+        this.setHoodAnnotations(currentHood, adjacentHoods);
       },
       onHeadingSupported: (headingIsSupported) => 
         this.setState({ headingIsSupported }),
-      onPositionChange: (lastPosition) => 
-        this.setState({ lastPosition }),
+      onPositionChange: (lastPosition) => {
+        // console.tron.log("POSITION CHANGED: " + JSON.stringify(lastPosition.coords));
+        const { latitude, longitude } = lastPosition.coords;
+        const ops = { latitude, longitude };
+        if (this._lastHeading) { ops.direction = this._lastHeading }
+        if (this._map) {
+          this._map.easeTo(ops, true, () => {});
+        }
+        this.setState({ lastPosition })
+      },
+      onHoodChange: ({newHood, adjacentHoods}) => {
+        this.setState({ currentHood: newHood, adjacentHoods });
+        console.tron.log('HOOD CHANGED '+adjacentHoods.length.toFixed());;
+        this.setHoodAnnotations(newHood, adjacentHoods);
+      },
       onHeadingChange: (headingData) => {
-        this._map.setDirection(headingData.heading);
-        this.setCompassAnnotation(headingData);
+        this.setState({ heading: headingData.heading });
+        this._lastHeading = headingData.heading;
+        const direction = headingData.heading;    
+        if (headingData.position) {
+          const { latitude, longitude } = headingData.position;
+          this._map.easeTo({ direction, latitude, longitude }, true, () => {});
+        } else {
+          console.tron.log('Position is missing! Mario is missing! Where is Carmen San Diego?!');
+          this._map.setDirection(headingData.heading);
+        }
+        // this.setCompassAnnotation(headingData);
       },
       onEntitiesDetected: (entities) => 
         this.setState({ entities })
@@ -84,6 +107,44 @@ class SonderView extends Component {
 
   componentWillUnmount() {
     Compass.stop();
+  }
+
+  setHoodAnnotations(currentHood, adjacentHoods) {
+    // Draw the hood annotation, with random color, then with BinduRGB
+    const currentHoodAnnotations = hoodToAnnotations(currentHood, {
+      id: currentHood.properties.label,
+      // fillAlpha: 0.5,
+      // alpha: 0.5,
+      class: 'hood',
+      fillColor: '#AA2222',
+      strokeColor: '#FFFFFF',
+      strokeWidth: 10,
+      // strokeAlpha: .5,
+    });
+    // alert(JSON.stringify(currentHoodAnnotations));
+    const adjacentHoodAnnotations = [];
+    for (let adjacentHood of adjacentHoods) {
+      const annotations = hoodToAnnotations(adjacentHood, {
+        id: adjacentHood.properties.label,
+        // fillAlpha: 0.5,
+        // alpha: 0.5,
+        class: 'hood',
+        fillColor: '#2222AA',
+        strokeColor: '#FFFFFF',
+        strokeWidth: 10,
+        // strokeAlpha: .5,
+      });
+      adjacentHoodAnnotations.push(...annotations);
+    }
+
+    this.setState({
+      annotations: [
+        ...this.state.annotations.filter(annotation => annotation.class !== 'hood'), 
+        ...currentHoodAnnotations,
+        ...adjacentHoodAnnotations,
+      ]
+    }) 
+    // Draw the adjacenthood annotations, with random color, then with BinduRGB
   }
 
   setCompassAnnotation(headingData) {
@@ -141,6 +202,9 @@ class SonderView extends Component {
           onLongPress={this.onLongPress}
           onTap={this.onTap}
         />
+        <Text>{this.state.headingIsSupported ?
+                getPrettyBearing(this.state.heading)
+                : "Heading unsupported." }</Text>
 
             {/*<Text>{this.state.entities ? 
               JSON.stringify(this.state.entities.hoods) : 
